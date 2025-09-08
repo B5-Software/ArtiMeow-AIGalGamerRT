@@ -511,9 +511,13 @@ class App {
             if (dot) dot.style.display = 'none';
       } else {
             // 触发一次封面生成
-    Utils.showGlobalOverlay('正在生成封面...');
-    await window.projectManager.ensureCover(project);
-    Utils.hideGlobalOverlay();
+            Utils.showGlobalOverlay('正在生成封面...');
+            const generatedUrl = await window.projectManager.ensureCover(project);
+            Utils.hideGlobalOverlay();
+            // 如果生成成功，触发项目列表刷新以显示新封面
+            if (generatedUrl) {
+              await this.renderProjectsList();
+            }
           }
         } catch {}
       }
@@ -988,8 +992,18 @@ class App {
       } catch (parseError) {
         console.warn('解析AI响应JSON失败，使用默认结构:', parseError);
         const responseText = typeof response === 'string' ? response : JSON.stringify(response);
+        
+        // 生成随机项目名称
+        const randomNames = [
+          '梦幻之旅', '星辰物语', '心动时刻', '青春物语', '命运之轮',
+          '夏日回忆', '樱花飞舞', '月光传说', '彩虹之约', '时光倒流',
+          '魔法学院', '冒险日记', '恋爱进行时', '奇迹降临', '浪漫邂逅',
+          '追梦少年', '花开时节', '星空下的约定', '温暖的回忆', '青春不散场'
+        ];
+        const randomName = randomNames[Math.floor(Math.random() * randomNames.length)];
+        
         projectData = {
-          name: '未命名Lucky项目',
+          name: randomName,
           description: responseText.substring(0, 100),
           style: '创意风格',
           summary: responseText

@@ -122,7 +122,7 @@ class SettingsManager {
     const saveBtn = document.getElementById('save-settings');
     if (saveBtn) {
       saveBtn.addEventListener('click', async () => {
-        await this.saveSettings();
+        await this.saveSettings(true); // 参数 true 表示手动保存，总是关闭窗口
       });
     }
 
@@ -137,7 +137,7 @@ class SettingsManager {
       const eventType = element.type === 'checkbox' ? 'change' : 
                        element.type === 'range' ? 'input' : 'change';
       element.addEventListener(eventType, async () => {
-        await this.saveSettings();
+        await this.saveSettings(false); // 参数 false 表示自动保存，只有窗口设置变化时才关闭
       });
     });
 
@@ -537,8 +537,9 @@ class SettingsManager {
 
   /**
    * 保存设置
+   * @param {boolean} forceClose - 是否强制关闭窗口（手动保存时为true，自动保存时为false）
    */
-  async saveSettings() {
+  async saveSettings(forceClose = false) {
     if (this.isLoading) return;
 
     try {
@@ -551,6 +552,26 @@ class SettingsManager {
 
       // 收集设置数据
       const newSettings = this.collectSettings();
+
+      // 获取当前设置以比较变化
+      let currentSettings = {};
+      try {
+        if (window.electronAPI && window.electronAPI.storage) {
+          currentSettings = await window.electronAPI.storage.get('appSettings') || {};
+        } else {
+          currentSettings = JSON.parse(localStorage.getItem('artimeow-settings') || '{}');
+        }
+      } catch (e) {
+        currentSettings = {};
+      }
+
+      // 检查是否有窗口/分辨率/全屏相关设置变化
+      const windowSettingsChanged = (
+        newSettings.fullscreenMode !== currentSettings.fullscreenMode ||
+        newSettings.windowResolution !== currentSettings.windowResolution ||
+        newSettings.customWidth !== currentSettings.customWidth ||
+        newSettings.customHeight !== currentSettings.customHeight
+      );
 
       // 验证设置
       const validation = this.validateSettings(newSettings);
@@ -597,10 +618,12 @@ class SettingsManager {
 
       Utils.showNotification('设置保存成功！', 'success');
 
-      // 关闭设置窗口
-      setTimeout(() => {
-        window.close();
-      }, 1000);
+      // 手动保存时总是关闭窗口，自动保存时只有窗口设置变化才关闭
+      if (forceClose || windowSettingsChanged) {
+        setTimeout(() => {
+          window.close();
+        }, 1000);
+      }
 
     } catch (error) {
       console.error('保存设置失败:', error);
@@ -1304,26 +1327,51 @@ class SettingsManager {
 
   /**
    * 保存设置
+   * @param {boolean} forceClose - 是否强制关闭窗口（手动保存时为true，自动保存时为false）
    */
-  async saveSettings() {
+  async saveSettings(forceClose = false) {
     try {
-      const settings = this.collectSettings();
+      const newSettings = this.collectSettings();
+      
+      // 获取当前设置以比较变化
+      let currentSettings = {};
+      try {
+        if (window.electronAPI && window.electronAPI.storage) {
+          currentSettings = await window.electronAPI.storage.get('appSettings') || {};
+        } else {
+          currentSettings = JSON.parse(localStorage.getItem('artimeow-settings') || '{}');
+        }
+      } catch (e) {
+        currentSettings = {};
+      }
+      
+      // 检查是否有窗口/分辨率/全屏相关设置变化
+      const windowSettingsChanged = (
+        newSettings.fullscreenMode !== currentSettings.fullscreenMode ||
+        newSettings.windowResolution !== currentSettings.windowResolution ||
+        newSettings.customWidth !== currentSettings.customWidth ||
+        newSettings.customHeight !== currentSettings.customHeight
+      );
       
       // 写入 Electron 存储（优先）
       if (window.electronAPI && window.electronAPI.storage) {
-        await window.electronAPI.storage.set('appSettings', settings);
+        await window.electronAPI.storage.set('appSettings', newSettings);
       }
       // 同步写入 localStorage 以支持 storage 事件与向后兼容
-      localStorage.setItem('artimeow-settings', JSON.stringify(settings));
+      localStorage.setItem('artimeow-settings', JSON.stringify(newSettings));
 
       // 应用窗口设置到当前窗口
-      await this.applyWindowSettings(settings);
+      await this.applyWindowSettings(newSettings);
 
-      // 显示保存成功提示并关闭窗口
+      // 显示保存成功提示
       this.showNotification('设置已保存', 'success');
-      setTimeout(() => window.close(), 400);
       
-      return settings;
+      // 手动保存时总是关闭窗口，自动保存时只有窗口设置变化才关闭
+      if (forceClose || windowSettingsChanged) {
+        setTimeout(() => window.close(), 400);
+      }
+      
+      return newSettings;
     } catch (error) {
       console.error('保存设置失败:', error);
       this.showNotification('保存设置失败', 'error');
