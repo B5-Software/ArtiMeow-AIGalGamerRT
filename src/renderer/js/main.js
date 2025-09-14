@@ -496,36 +496,77 @@ class App {
       const dot = card.querySelector('.dot-pulse');
       
       if (coverUrl && coverEl) {
-        // 检查是否已经通过事件监听器设置了背景图像（避免重复设置）
-        if (!coverEl.style.backgroundImage || coverEl.style.backgroundImage === 'none') {
-          coverEl.style.backgroundImage = `url('${coverUrl.replace(/"/g, '\\"')}')`;
-          coverEl.classList.add('has-image');
-          if (placeholder) placeholder.classList.add('hidden');
-        }
+        // 有现有封面，直接应用
+        coverEl.style.backgroundImage = `url('${coverUrl.replace(/"/g, '\\"')}')`;
+        coverEl.classList.add('has-image');
+        if (placeholder) placeholder.classList.add('hidden');
       } else if (placeholder) {
+        // 没有封面，检查是否能生成
         placeholder.classList.remove('hidden');
         try {
           const cfg = window.aiService?.getConfigStatus?.();
           if (!cfg?.imageConfigured) {
             if (stageEl) stageEl.textContent = '未配置图像API';
             if (dot) dot.style.display = 'none';
-      } else {
-            // 触发一次封面生成
-            Utils.showGlobalOverlay('正在生成封面...');
-            const generatedUrl = await window.projectManager.ensureCover(project);
-            Utils.hideGlobalOverlay();
-            // 如果生成成功，触发项目列表刷新以显示新封面
-            if (generatedUrl) {
-              await this.renderProjectsList();
-            }
+          } else {
+            // 触发封面生成，使用事件监听器来处理进度和结果
+            if (stageEl) stageEl.textContent = '正在生成封面...';
+            if (dot) dot.style.display = 'block';
+            
+            // 生成封面但不等待完成，让事件监听器处理结果
+            window.projectManager.ensureCover(project).then(generatedUrl => {
+              // 封面生成完成后，检查事件监听器是否已经处理了封面应用
+              setTimeout(() => {
+                const coverEl = card.querySelector('.project-cover');
+                const placeholder = card.querySelector('.cover-placeholder');
+                
+                // 如果事件监听器没有成功应用封面，则手动刷新
+                if (generatedUrl && coverEl && !coverEl.classList.contains('has-image')) {
+                  this.refreshProjectCard(project.id);
+                }
+              }, 100); // 给事件监听器一点时间来处理
+            }).catch(err => {
+              console.error('封面生成失败:', err);
+              if (stageEl) stageEl.textContent = '封面生成失败';
+              if (dot) dot.style.display = 'none';
+            });
           }
-        } catch {}
+        } catch (err) {
+          console.error('检查图像配置失败:', err);
+        }
       }
     } catch (e) {
       // 忽略封面加载错误
     }
 
     return card;
+  }
+
+  /**
+   * 刷新单个项目卡片（用于封面更新后的局部刷新）
+   */
+  async refreshProjectCard(projectId) {
+    try {
+      const project = window.projectManager.getProjects().find(p => p.id === projectId);
+      if (!project) return;
+
+      const existingCard = document.querySelector(`[data-project-id="${projectId}"]`);
+      if (!existingCard) return;
+
+      // 获取最新的封面URL
+      const coverUrl = await window.projectManager.getProjectCover(project);
+      const coverEl = existingCard.querySelector('.project-cover');
+      const placeholder = existingCard.querySelector('.cover-placeholder');
+
+      if (coverUrl && coverEl) {
+        // 应用新封面
+        coverEl.style.backgroundImage = `url('${coverUrl.replace(/"/g, '\\"')}')`;
+        coverEl.classList.add('has-image');
+        if (placeholder) placeholder.classList.add('hidden');
+      }
+    } catch (error) {
+      console.error('刷新项目卡片失败:', error);
+    }
   }
 
   /**
