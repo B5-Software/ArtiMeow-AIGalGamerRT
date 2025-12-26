@@ -5,9 +5,30 @@ const { parseFile } = require('music-metadata');
 const os = require('os');
 const yauzl = require('yauzl');
 const yazl = require('yazl');
+const { SerialPort } = require('serialport');
+const { ReadlineParser } = require('@serialport/parser-readline');
 
 // 数据目录路径
 const DATA_DIR = path.join(os.homedir(), 'Documents', 'ArtiMeow-AIGalGame-Data');
+
+// IoT串口管理
+let iotSerialPort = null;
+let iotParser = null;
+
+// IoT连接状态（主进程全局状态）
+let iotConnectionState = {
+  connected: false,
+  connectionType: 'none', // 'serial' | 'websocket' | 'none'
+  serialPort: '',
+  baudRate: 115200,
+  deviceIP: '',
+  lastHeartRate: 0,
+  lastSRI: 0,
+  fingerDetected: false,
+  lastUpdateTime: 0,
+  // SRI测试结果
+  sriTestResult: null
+};
 
 class MainProcess {
   constructor() {
@@ -17,29 +38,29 @@ class MainProcess {
   }
 
   async init() {
-    // 确保数据目录存在
     await fs.ensureDir(DATA_DIR);
-    
-    // 单实例锁，二次启动时前置已有窗口
+
     const gotLock = app.requestSingleInstanceLock();
     if (!gotLock) {
       app.quit();
       return;
     }
+
     app.on('second-instance', () => {
       if (this.mainWindow) {
-        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+        if (this.mainWindow.isMinimized()) {
+          this.mainWindow.restore();
+        }
         this.mainWindow.show();
         this.mainWindow.focus();
       }
     });
 
-    // 应用准备就绪时创建窗口
     app.whenReady().then(() => {
       this.createMainWindow();
       this.setupMenu();
       this.setupIPC();
-      
+
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
           this.createMainWindow();
@@ -52,6 +73,15 @@ class MainProcess {
         app.quit();
       }
     });
+
+    app.on('before-quit', () => {
+      if (iotSerialPort && iotSerialPort.isOpen) {
+        console.log('🔌 正在关闭IoT串口连接...');
+        iotSerialPort.close();
+        iotSerialPort = null;
+        iotParser = null;
+      }
+    });
   }
 
   createMainWindow() {
@@ -60,7 +90,7 @@ class MainProcess {
       height: 720,
       minWidth: 800,
       minHeight: 600,
-      frame: false, // 无边框窗口
+      frame: false,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -93,7 +123,7 @@ class MainProcess {
       height: 600,
       parent: this.mainWindow,
       modal: true,
-      frame: false, // 无边框窗口
+      frame: false,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -103,7 +133,7 @@ class MainProcess {
     });
 
     this.settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
-    
+
     this.settingsWindow.once('ready-to-show', () => {
       this.settingsWindow.show();
     });
@@ -620,20 +650,25 @@ Set-ItemProperty -Path $regPath -Name "TileWallpaper" -Value "0"
     });
 
     // 窗口控制
-    ipcMain.handle('window-minimize', () => {
-      this.mainWindow.minimize();
+    ipcMain.handle('window-minimize', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) win.minimize();
     });
 
-    ipcMain.handle('window-maximize', () => {
-      if (this.mainWindow.isMaximized()) {
-        this.mainWindow.unmaximize();
-      } else {
-        this.mainWindow.maximize();
+    ipcMain.handle('window-maximize', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) {
+        if (win.isMaximized()) {
+          win.unmaximize();
+        } else {
+          win.maximize();
+        }
       }
     });
 
-    ipcMain.handle('window-close', () => {
-      this.mainWindow.close();
+    ipcMain.handle('window-close', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) win.close();
     });
 
     ipcMain.handle('window-set-fullscreen', (event, fullscreen) => {
@@ -697,12 +732,49 @@ Set-ItemProperty -Path $regPath -Name "TileWallpaper" -Value "0"
 
     // 简易存储（以 userData/settings.json 持久化）
     const settingsFile = path.join(app.getPath('userData'), 'settings.json');
+    let settingsCorruptionHandled = false;
+
+    const readSettingsStore = async () => {
+      const exists = await fs.pathExists(settingsFile);
+      if (!exists) {
+        return {};
+      }
+
+      try {
+        return await fs.readJson(settingsFile);
+      } catch (error) {
+        console.error('读取设置文件失败:', error);
+
+        if (!settingsCorruptionHandled) {
+          settingsCorruptionHandled = true;
+          try {
+            const raw = await fs.readFile(settingsFile, 'utf8');
+            const backupPath = `${settingsFile}.${Date.now()}.bak`;
+            await fs.writeFile(backupPath, raw, 'utf8');
+            console.warn('已备份损坏的设置文件:', backupPath);
+          } catch (backupError) {
+            console.error('备份损坏设置文件失败:', backupError);
+          }
+
+          try {
+            await fs.outputJson(settingsFile, {}, { spaces: 2 });
+            console.info('已重置损坏的设置文件为默认内容');
+          } catch (resetError) {
+            console.error('重置损坏设置文件失败:', resetError);
+          }
+        }
+
+        return {};
+      }
+    };
+
     ipcMain.handle('storage-get', async (_evt, key) => {
       try {
-        const exists = await fs.pathExists(settingsFile);
-        if (!exists) return null;
-        const all = await fs.readJson(settingsFile);
-        return all ? all[key] : null;
+        const all = await readSettingsStore();
+        if (!all || typeof all !== 'object') {
+          return null;
+        }
+        return Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null;
       } catch (e) {
         return null;
       }
@@ -710,10 +782,16 @@ Set-ItemProperty -Path $regPath -Name "TileWallpaper" -Value "0"
 
     ipcMain.handle('storage-set', async (_evt, key, value) => {
       try {
-        const exists = await fs.pathExists(settingsFile);
-        const all = exists ? (await fs.readJson(settingsFile)) : {};
+        const all = await readSettingsStore();
         all[key] = value;
         await fs.outputJson(settingsFile, all, { spaces: 2 });
+        if (key === 'iotSettings') {
+          BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+              win.webContents.send('iot-settings-updated', value);
+            }
+          });
+        }
         // 若是应用设置，广播主题/渐变更新以便其他窗口即时同步
         if (key === 'appSettings' && value) {
           const payload = {};
@@ -735,6 +813,330 @@ Set-ItemProperty -Path $regPath -Name "TileWallpaper" -Value "0"
       } catch (e) {
         throw e;
       }
+    });
+
+    // ==================== IoT串口IPC处理器 ====================
+    
+    // IoT串口连接
+    ipcMain.handle('iot-serial-connect', async (event, ...args) => {
+      try {
+        let port;
+        let baudRate = 115200;
+
+        if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+          port = args[0].port;
+          if (typeof args[0].baudRate === 'number') {
+            baudRate = args[0].baudRate;
+          }
+        } else {
+          [port, baudRate] = args;
+        }
+
+        if (!port || typeof port !== 'string') {
+          throw new Error('无效的串口路径');
+        }
+
+        if (typeof baudRate !== 'number' || Number.isNaN(baudRate)) {
+          baudRate = 115200;
+        }
+
+        // 关闭已有连接
+        if (iotSerialPort && iotSerialPort.isOpen) {
+          iotSerialPort.close();
+        }
+
+        // 创建新连接
+        iotSerialPort = new SerialPort({
+          path: port,
+          baudRate
+        });
+
+        // 创建解析器 - 移除\r以兼容Windows/Arduino
+        iotParser = iotSerialPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+
+        // 监听数据
+        iotParser.on('data', (line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          
+          // 发送到DevTools Console而非系统控制台
+          BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+              win.webContents.executeJavaScript(`console.log('[IoT串口数据]', ${JSON.stringify(trimmed)})`);
+            }
+          });
+          
+          try {
+            const data = JSON.parse(trimmed);
+            
+            // 发送解析成功信息到DevTools
+            BrowserWindow.getAllWindows().forEach(win => {
+              if (!win.isDestroyed()) {
+                win.webContents.executeJavaScript(`console.log('[IoT解析成功]', ${JSON.stringify(data)})`);
+              }
+            });
+            
+            // 更新主进程全局状态
+            if (data.type === 'heartbeat' && typeof data.heartRate === 'number') {
+              iotConnectionState.lastHeartRate = data.heartRate;
+              iotConnectionState.fingerDetected = !!data.fingerDetected;
+              iotConnectionState.lastUpdateTime = Date.now();
+            }
+            
+            // 转发数据到所有渲染进程
+            BrowserWindow.getAllWindows().forEach(win => {
+              if (!win.isDestroyed()) {
+                win.webContents.send('iot-serial-data', data);
+              }
+            });
+          } catch (err) {
+            // 发送解析错误到DevTools
+            BrowserWindow.getAllWindows().forEach(win => {
+              if (!win.isDestroyed()) {
+                win.webContents.executeJavaScript(
+                  `console.error('[IoT解析失败]', '错误:', ${JSON.stringify(err.message)}, '原始数据:', ${JSON.stringify(trimmed)})`
+                );
+              }
+            });
+          }
+        });
+
+        // 监听错误
+        iotSerialPort.on('error', (err) => {
+          // 发送错误到DevTools Console
+          BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+              win.webContents.executeJavaScript(
+                `console.error('[IoT串口错误]', ${JSON.stringify(err.message)})`
+              );
+              win.webContents.send('iot-serial-error', err.message);
+            }
+          });
+        });
+
+        // 发送连接成功信息到DevTools
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.executeJavaScript(
+              `console.log('✅ IoT串口已连接:', ${JSON.stringify(port)}, '@', ${JSON.stringify(baudRate)})`
+            );
+          }
+        });
+        
+        // 更新连接状态
+        iotConnectionState.connected = true;
+        iotConnectionState.connectionType = 'serial';
+        iotConnectionState.serialPort = port;
+        iotConnectionState.baudRate = baudRate;
+        
+        // 广播连接状态更新
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.send('iot-connection-state-changed', iotConnectionState);
+          }
+        });
+        
+        return { success: true, message: '连接成功', port, baudRate };
+      } catch (error) {
+        // 发送错误到DevTools
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.executeJavaScript(
+              `console.error('❌ IoT串口连接失败:', ${JSON.stringify(error.message)})`
+            );
+          }
+        });
+        return { success: false, message: error.message };
+      }
+    });
+
+    // IoT串口断开
+    ipcMain.handle('iot-serial-disconnect', async () => {
+      try {
+        if (iotSerialPort && iotSerialPort.isOpen) {
+          iotSerialPort.close();
+          iotSerialPort = null;
+          iotParser = null;
+          
+          // 更新连接状态
+          iotConnectionState.connected = false;
+          iotConnectionState.connectionType = 'none';
+          iotConnectionState.serialPort = '';
+          iotConnectionState.lastHeartRate = 0;
+          iotConnectionState.fingerDetected = false;
+          
+          // 广播连接状态更新
+          BrowserWindow.getAllWindows().forEach(win => {
+            if (!win.isDestroyed()) {
+              win.webContents.send('iot-connection-state-changed', iotConnectionState);
+              win.webContents.executeJavaScript(
+                `console.log('✅ IoT串口已断开')`
+              );
+            }
+          });
+          
+          return { success: true, message: '断开成功' };
+        }
+        return { success: false, message: '未连接' };
+      } catch (error) {
+        // 发送错误到DevTools
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.executeJavaScript(
+              `console.error('❌ IoT串口断开失败:', ${JSON.stringify(error.message)})`
+            );
+          }
+        });
+        return { success: false, message: error.message };
+      }
+    });
+
+    // 列出可用串口
+    ipcMain.handle('iot-list-serial-ports', async () => {
+      try {
+        const ports = await SerialPort.list();
+        return ports.map(port => ({
+          path: port.path,
+          manufacturer: port.manufacturer,
+          serialNumber: port.serialNumber,
+          pnpId: port.pnpId,
+          vendorId: port.vendorId,
+          productId: port.productId
+        }));
+      } catch (error) {
+        console.error('列出串口失败:', error);
+        return [];
+      }
+    });
+
+    // 获取IoT连接状态
+    ipcMain.handle('iot-get-connection-state', async () => {
+      return iotConnectionState;
+    });
+
+    // SRI测试完成处理
+    ipcMain.handle('sri-test-complete', async (event, scores) => {
+      // 发送到DevTools
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+          win.webContents.executeJavaScript(
+            `console.log('📊 收到SRI测试结果:', ${JSON.stringify(scores)})`
+          );
+        }
+      });
+      
+      // 更新主进程状态
+      iotConnectionState.lastSRI = scores.total || 0;
+      iotConnectionState.sriTestResult = {
+        scores,
+        timestamp: Date.now()
+      };
+      
+      // 广播SRI更新到所有窗口
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+          win.webContents.send('sri-score-updated', {
+            total: scores.total,
+            emotional: scores.emotional,
+            physical: scores.physical,
+            social: scores.social,
+            timestamp: Date.now()
+          });
+        }
+      });
+      
+      return { success: true };
+    });
+
+    // 打开SRI测试窗口
+    ipcMain.handle('window-open-sri-test', async () => {
+      try {
+        const sriWindow = new BrowserWindow({
+          width: 800,
+          height: 600,
+          frame: false,
+          transparent: true,
+          icon: path.join(__dirname, 'renderer', 'assets', 'icons', 'icon.png'),
+          skipTaskbar: false, // 显示在任务栏
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
+          }
+        });
+
+        sriWindow.loadFile(path.join(__dirname, 'renderer', 'sri-test.html'));
+        
+        // 发送到DevTools
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.executeJavaScript(
+              `console.log('✅ SRI测试窗口已打开')`
+            );
+          }
+        });
+        
+        return { success: true };
+      } catch (error) {
+        console.error('打开SRI测试窗口失败:', error);
+        return { success: false, message: error.message };
+      }
+    });
+
+    // 打开IoT面板窗口
+    ipcMain.handle('window-open-iot-panel', async () => {
+      try {
+        const iotWindow = new BrowserWindow({
+          width: 1000,
+          height: 700,
+          frame: false,
+          transparent: false,
+          backgroundColor: '#1a1a2e',
+          icon: path.join(__dirname, 'renderer', 'assets', 'icons', 'icon.png'),
+          skipTaskbar: false, // 显示在任务栏
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
+          }
+        });
+
+        iotWindow.loadFile(path.join(__dirname, 'renderer', 'iot-panel.html'));
+        
+        // 发送到DevTools
+        BrowserWindow.getAllWindows().forEach(win => {
+          if (!win.isDestroyed()) {
+            win.webContents.executeJavaScript(
+              `console.log('✅ IoT面板窗口已打开')`
+            );
+          }
+        });
+        
+        return { success: true };
+      } catch (error) {
+        console.error('打开IoT面板窗口失败:', error);
+        return { success: false, message: error.message };
+      }
+    });
+
+    // 注意: 'sri-test-complete' 处理器已在第983行注册,此处已移除重复代码
+
+    // SRI数据更新广播（从测试窗口到IoT面板）
+    ipcMain.on('sri-data-updated', (event, sriData) => {
+      // 发送到DevTools
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) {
+          win.webContents.executeJavaScript(
+            `console.log('📢 广播SRI数据更新到所有窗口')`
+          );
+        }
+      });
+      
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed() && win.webContents !== event.sender) {
+          win.webContents.send('sri-data-updated', sriData);
+        }
+      });
     });
   }
 

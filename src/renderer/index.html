@@ -40,6 +40,15 @@
                     <p class="subtitle">实时AIGC的GalGame框架</p>
                 </div>
                 <div class="header-buttons">
+                    <button id="main-heart-rate-display" class="btn btn-secondary hr-display-header" title="实时心率" style="display: none;">
+                        <i class="fa fa-heartbeat"></i>
+                        <span id="main-hr-value">--</span>
+                        <span class="hr-unit">BPM</span>
+                    </button>
+                    <button id="main-iot-panel-btn-header" class="btn btn-secondary" title="IoT设备面板">
+                        <i class="fa fa-heart-pulse"></i>
+                        IoT面板
+                    </button>
                     <button id="settings-btn" class="btn btn-secondary">
                         <i class="fa fa-gear"></i>
                         设置
@@ -96,9 +105,27 @@
                     </button>
                 </div>
                 <div class="control-group">
+                    <button id="main-iot-panel-btn" class="control-btn" title="IoT设备面板">
+                        <i class="fas fa-heart-pulse"></i>
+                    </button>
+                </div>
+                <div class="control-group">
                     <button id="bottom-settings-btn" class="control-btn" title="设置">
                         <i class="fas fa-gear"></i>
                     </button>
+                </div>
+            </div>
+            
+            <!-- 心率曲线悬浮窗 -->
+            <div id="main-hr-chart-panel" class="hr-chart-panel" style="display: none;">
+                <div class="hr-chart-header">
+                    <h4><i class="fa fa-chart-line"></i> 心率曲线</h4>
+                    <button id="main-hr-chart-close" class="btn-close-small">×</button>
+                </div>
+                <canvas id="main-hr-chart" width="300" height="150"></canvas>
+                <div class="hr-chart-info">
+                    <span id="main-hr-emotion">--</span>
+                    <span id="main-hr-trend">--</span>
                 </div>
             </div>
         </div>
@@ -134,6 +161,13 @@
                     </button>
                     <button id="game-settings-btn" class="control-btn" title="设置">
                         <i class="fa fa-gear"></i>
+                    </button>
+                    <button id="game-iot-panel-btn" class="control-btn" title="IoT面板">
+                        <i class="fa fa-microchip"></i>
+                    </button>
+                    <button id="game-heart-rate-btn" class="control-btn hr-display" title="实时心率" style="display: none;">
+                        <i class="fa fa-heartbeat"></i>
+                        <span id="game-hr-value">--</span>
                     </button>
                 </div>
 
@@ -557,6 +591,7 @@
     <script src="js/path-utils.js"></script>
     <script src="js/music-visualizer.js"></script>
     <script src="js/utils.js"></script>
+    <script src="js/iot-manager.js"></script>
     <script src="js/background-manager.js"></script>
     <script src="js/project-manager.js"></script>
     <script src="js/game-engine.js"></script>

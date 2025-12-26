@@ -17,6 +17,9 @@ class App {
     
     // 设置事件监听器
     this.setupEventListeners();
+    
+    // 初始化IoT UI控制
+    await this.setupIoTUI();
 
     // 监听主题实时预览更新（来自设置窗口）
     if (window.electronAPI && window.electronAPI.theme && window.electronAPI.theme.onUpdate) {
@@ -94,6 +97,12 @@ class App {
     while (!window.timeline) {
       await Utils.sleep(100);
     }
+    
+    // 等待IoT管理器初始化
+    while (!window.iotManager) {
+      await Utils.sleep(100);
+    }
+    console.log('✅ 所有服务已就绪，包括IoT管理器');
   }
 
   /**
@@ -237,6 +246,22 @@ class App {
     if (settingsBtn) {
       settingsBtn.addEventListener('click', () => {
         window.electronAPI.openSettings();
+      });
+    }
+
+    // 主界面 IoT 面板按钮（Dock栏）
+    const mainIotPanelBtn = document.getElementById('main-iot-panel-btn');
+    if (mainIotPanelBtn) {
+      mainIotPanelBtn.addEventListener('click', async () => {
+        await window.electronAPI.window.openIoTPanel();
+      });
+    }
+
+    // 主界面 IoT 面板按钮（Header）
+    const mainIotPanelBtnHeader = document.getElementById('main-iot-panel-btn-header');
+    if (mainIotPanelBtnHeader) {
+      mainIotPanelBtnHeader.addEventListener('click', async () => {
+        await window.electronAPI.window.openIoTPanel();
       });
     }
 
@@ -516,19 +541,30 @@ class App {
             // 生成封面但不等待完成，让事件监听器处理结果
             window.projectManager.ensureCover(project).then(generatedUrl => {
               // 封面生成完成后，检查事件监听器是否已经处理了封面应用
+              // 给事件监听器足够时间处理（事件可能是异步的）
               setTimeout(() => {
-                const coverEl = card.querySelector('.project-cover');
-                const placeholder = card.querySelector('.cover-placeholder');
+                const currentCoverEl = card.querySelector('.project-cover');
+                const currentPlaceholder = card.querySelector('.cover-placeholder');
+                const currentStageEl = card.querySelector('.cover-stage');
                 
                 // 如果事件监听器没有成功应用封面，则手动刷新
-                if (generatedUrl && coverEl && !coverEl.classList.contains('has-image')) {
+                if (generatedUrl && currentCoverEl && !currentCoverEl.classList.contains('has-image')) {
+                  console.log('事件监听器未应用封面，执行备用刷新:', project.id);
                   this.refreshProjectCard(project.id);
+                } else if (!generatedUrl) {
+                  // 生成失败，显示提示
+                  if (currentStageEl) currentStageEl.textContent = '无法生成封面';
+                  if (currentPlaceholder && currentPlaceholder.querySelector('.dot-pulse')) {
+                    currentPlaceholder.querySelector('.dot-pulse').style.display = 'none';
+                  }
                 }
-              }, 100); // 给事件监听器一点时间来处理
+              }, 500); // 给事件监听器足够时间来处理
             }).catch(err => {
               console.error('封面生成失败:', err);
-              if (stageEl) stageEl.textContent = '封面生成失败';
-              if (dot) dot.style.display = 'none';
+              const currentStageEl = card.querySelector('.cover-stage');
+              const currentDot = card.querySelector('.dot-pulse');
+              if (currentStageEl) currentStageEl.textContent = '封面生成失败';
+              if (currentDot) currentDot.style.display = 'none';
             });
           }
         } catch (err) {
@@ -2808,6 +2844,315 @@ class App {
       };
       document.addEventListener('keydown', handleKeydown);
     });
+  }
+
+  /**
+   * 设置IoT UI控制
+   */
+  async setupIoTUI() {
+    console.log('🔧 开始设置IoT UI...');
+    
+    // 检查IoT管理器是否存在
+    if (!window.iotManager) {
+      console.warn('⚠️ IoT管理器未初始化，跳过IoT UI设置');
+      return;
+    }
+
+    console.log('✅ IoT管理器已找到，等待就绪...');
+
+    // 等待IoT管理器就绪
+    await window.iotManager.waitUntilReady();
+    console.log('✅ IoT管理器已就绪');
+    
+    const status = window.iotManager.getStatus();
+    console.log('📊 当前IoT状态:', status);
+    console.log('📊 连接状态:', status.connected);
+    
+    // 立即更新初始可见性
+    this.updateIoTVisibility(status.connected);
+    
+    // 监听连接状态变化
+    window.iotManager.on('connect', () => {
+      console.log('🔌 IoT连接事件触发');
+      this.updateIoTVisibility(true);
+    });
+    
+    window.iotManager.on('disconnect', () => {
+      console.log('🔌 IoT断开事件触发');
+      this.updateIoTVisibility(false);
+    });
+    
+    // 监听心率数据更新
+    window.iotManager.on('heartrate', (data) => {
+      console.log('💓 收到心率数据:', data);
+      // IoT管理器发送的是 data.bpm，不是 data.heartRate
+      this.updateMainHeartRateDisplay(data.bpm || data.heartRate);
+    });
+
+    // 主界面心率显示按钮点击
+    const mainHrDisplay = document.getElementById('main-heart-rate-display');
+    if (mainHrDisplay) {
+      console.log('✅ 找到主界面心率显示按钮');
+      mainHrDisplay.addEventListener('click', () => {
+        this.toggleMainHRChart();
+      });
+    } else {
+      console.warn('⚠️ 未找到主界面心率显示按钮 #main-heart-rate-display');
+    }
+
+    // 心率图表关闭按钮
+    const closeChartBtn = document.getElementById('main-hr-chart-close');
+    if (closeChartBtn) {
+      console.log('✅ 找到心率图表关闭按钮');
+      closeChartBtn.addEventListener('click', () => {
+        const panel = document.getElementById('main-hr-chart-panel');
+        if (panel) panel.style.display = 'none';
+      });
+    } else {
+      console.warn('⚠️ 未找到心率图表关闭按钮 #main-hr-chart-close');
+    }
+
+    // 开始绘制心率曲线
+    this.startHRChartDrawing();
+    
+    console.log('✅ IoT UI设置完成');
+  }
+
+  /**
+   * 更新IoT UI可见性 - 只控制心率显示按钮
+   */
+  updateIoTVisibility(connected) {
+    console.log(`🔄 更新IoT UI可见性: ${connected ? '显示' : '隐藏'}`);
+    console.log(`   参数类型: ${typeof connected}, 值: ${connected}`);
+    
+    // 主界面心率显示按钮 - 使用class控制可见性(避免CSS !important覆盖)
+    const mainHrDisplay = document.getElementById('main-heart-rate-display');
+    if (mainHrDisplay) {
+      if (connected) {
+        mainHrDisplay.classList.add('visible');
+      } else {
+        mainHrDisplay.classList.remove('visible');
+      }
+      console.log(`  ✅ 主界面心率显示: ${connected ? '已添加' : '已移除'} .visible 类`);
+      
+      // 验证实际计算样式
+      const computedStyle = window.getComputedStyle(mainHrDisplay);
+      console.log(`  🔍 实际计算样式 display = "${computedStyle.display}"`);
+    } else {
+      console.warn('  ⚠️ 未找到 #main-heart-rate-display');
+    }
+    
+    // 游戏界面心率显示按钮 - 使用class控制可见性
+    const gameHrBtn = document.getElementById('game-heart-rate-btn');
+    if (gameHrBtn) {
+      if (connected) {
+        gameHrBtn.classList.add('visible');
+      } else {
+        gameHrBtn.classList.remove('visible');
+      }
+      console.log(`  ✅ 游戏界面心率显示: ${connected ? '已添加' : '已移除'} .visible 类`);
+      
+      // 验证实际计算样式
+      const computedStyle = window.getComputedStyle(gameHrBtn);
+      console.log(`  🔍 实际计算样式 display = "${computedStyle.display}"`);
+    } else {
+      console.warn('  ⚠️ 未找到 #game-heart-rate-btn');
+    }
+  }
+
+  /**
+   * 更新主界面心率显示
+   */
+  updateMainHeartRateDisplay(bpm) {
+    console.log(`💓 更新心率显示: ${bpm} BPM`);
+    
+    // 主界面心率值
+    const hrValue = document.getElementById('main-hr-value');
+    const hrDisplay = document.getElementById('main-heart-rate-display');
+    
+    if (hrValue) {
+      hrValue.textContent = bpm || '--';
+      console.log(`  ✅ 主界面心率值已更新: ${hrValue.textContent}`);
+    } else {
+      console.warn('  ⚠️ 未找到 #main-hr-value');
+    }
+    
+    if (hrDisplay) {
+      if (bpm && bpm > 0) {
+        hrDisplay.classList.add('active');
+        console.log('  ✅ 主界面心率显示激活（添加动画）');
+      } else {
+        hrDisplay.classList.remove('active');
+        console.log('  ℹ️ 主界面心率显示未激活');
+      }
+    } else {
+      console.warn('  ⚠️ 未找到 #main-heart-rate-display');
+    }
+
+    // 游戏界面心率值
+    const gameHrValue = document.getElementById('game-hr-value');
+    const gameHrBtn = document.getElementById('game-heart-rate-btn');
+    
+    if (gameHrValue) {
+      gameHrValue.textContent = bpm || '--';
+      console.log(`  ✅ 游戏界面心率值已更新: ${gameHrValue.textContent}`);
+    }
+    
+    if (gameHrBtn) {
+      if (bpm && bpm > 0) {
+        gameHrBtn.classList.add('active');
+        console.log('  ✅ 游戏界面心率显示激活');
+      } else {
+        gameHrBtn.classList.remove('active');
+        console.log('  ℹ️ 游戏界面心率显示未激活');
+      }
+    }
+  }
+
+  /**
+   * 切换主界面心率图表显示
+   */
+  toggleMainHRChart() {
+    const panel = document.getElementById('main-hr-chart-panel');
+    if (panel) {
+      const isVisible = panel.style.display !== 'none';
+      panel.style.display = isVisible ? 'none' : 'block';
+    }
+  }
+
+  /**
+   * 开始心率曲线绘制
+   */
+  startHRChartDrawing() {
+    const canvas = document.getElementById('main-hr-chart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    setInterval(() => {
+      this.drawHRChart(ctx);
+    }, 1000); // 每秒更新一次
+  }
+
+  /**
+   * 绘制心率曲线
+   */
+  drawHRChart(context) {
+    const canvas = context.canvas;
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // 清空画布
+    context.clearRect(0, 0, width, height);
+    
+    // 获取心率历史数据
+    let hrHistory = [];
+    if (window.emotionAnalyzer && typeof window.emotionAnalyzer.getHeartRateHistory === 'function') {
+      hrHistory = window.emotionAnalyzer.getHeartRateHistory();
+    } else if (window.iotManager && window.iotManager.heartRateHistory) {
+      hrHistory = window.iotManager.heartRateHistory.map(item => ({
+        value: item.bpm,
+        timestamp: item.timestamp
+      }));
+    }
+    
+    if (!hrHistory || hrHistory.length === 0) {
+      context.fillStyle = '#999';
+      context.font = '14px Arial';
+      context.textAlign = 'center';
+      context.fillText('暂无数据', width / 2, height / 2);
+      return;
+    }
+    
+    // 计算数据范围
+    const hrValues = hrHistory.map(item => typeof item === 'object' ? (item.value || item.bpm) : item);
+    const minHR = Math.min(...hrValues);
+    const maxHR = Math.max(...hrValues);
+    const range = maxHR - minHR || 10;
+    
+    const padding = 10;
+    const chartHeight = height - 2 * padding;
+    const chartWidth = width - 2 * padding;
+    
+    // 绘制网格线
+    context.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    context.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding + (chartHeight / 5) * i;
+      context.beginPath();
+      context.moveTo(padding, y);
+      context.lineTo(width - padding, y);
+      context.stroke();
+    }
+    
+    // 绘制心率曲线
+    context.strokeStyle = '#f093fb';
+    context.lineWidth = 2;
+    context.beginPath();
+    
+    const step = chartWidth / Math.max(hrValues.length - 1, 1);
+    hrValues.forEach((hr, index) => {
+      const x = padding + index * step;
+      const normalizedValue = (hr - minHR) / range;
+      const y = height - padding - (normalizedValue * chartHeight);
+      
+      if (index === 0) {
+        context.moveTo(x, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    });
+    
+    context.stroke();
+    
+    // 填充渐变
+    context.lineTo(width - padding, height - padding);
+    context.lineTo(padding, height - padding);
+    context.closePath();
+    
+    const gradient = context.createLinearGradient(0, padding, 0, height - padding);
+    gradient.addColorStop(0, 'rgba(240, 147, 251, 0.3)');
+    gradient.addColorStop(1, 'rgba(240, 147, 251, 0.05)');
+    context.fillStyle = gradient;
+    context.fill();
+    
+    // 绘制数据点
+    context.fillStyle = '#f093fb';
+    hrValues.forEach((hr, index) => {
+      const x = padding + index * step;
+      const normalizedValue = (hr - minHR) / range;
+      const y = height - padding - (normalizedValue * chartHeight);
+      
+      context.beginPath();
+      context.arc(x, y, 3, 0, Math.PI * 2);
+      context.fill();
+    });
+    
+    // 更新情绪和趋势显示
+    if (window.emotionAnalyzer) {
+      const emotionState = window.emotionAnalyzer.getCurrentEmotion();
+      const emotionNameEl = document.getElementById('main-hr-emotion');
+      const emotionTrendEl = document.getElementById('main-hr-trend');
+      
+      if (emotionNameEl && emotionState) {
+        // 情绪名称映射
+        const emotionNames = {
+          'very_calm': '非常平静',
+          'calm': '平静',
+          'neutral': '中性',
+          'interested': '感兴趣',
+          'excited': '兴奋',
+          'very_excited': '非常兴奋',
+          'intense': '强烈'
+        };
+        emotionNameEl.textContent = emotionNames[emotionState.emotion] || '未知';
+      }
+      
+      if (emotionTrendEl && emotionState) {
+        const trendIcon = emotionState.trend === 'rising' ? '↑' : 
+                         emotionState.trend === 'falling' ? '↓' : '→';
+        emotionTrendEl.textContent = trendIcon;
+      }
+    }
   }
 }
 

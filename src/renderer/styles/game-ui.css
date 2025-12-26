@@ -94,6 +94,76 @@
     backdrop-filter: var(--glass-blur);
 }
 
+/* 游戏内心率显示按钮 */
+.heart-rate-button {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+    background: var(--bg-glass);
+    border: 2px solid var(--border-glass);
+    backdrop-filter: var(--glass-blur);
+    border-radius: 12px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.heart-rate-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 212, 255, 0.3);
+    border-color: var(--primary-neon);
+}
+
+.heart-rate-button .hr-icon {
+    font-size: 24px;
+    color: var(--primary-neon);
+    animation: heartbeat 1.5s ease-in-out infinite;
+}
+
+.heart-rate-button .hr-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--primary-neon);
+    min-width: 70px;
+    text-align: right;
+}
+
+.heart-rate-button .hr-unit {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.heart-rate-button.disconnected {
+    opacity: 0.6;
+}
+
+.heart-rate-button.disconnected .hr-icon {
+    color: var(--text-secondary);
+    animation: none;
+}
+
+.heart-rate-button.disconnected .hr-value {
+    color: var(--text-secondary);
+}
+
+@keyframes heartbeat {
+    0%, 100% {
+        transform: scale(1);
+    }
+    10%, 30% {
+        transform: scale(1.1);
+    }
+    20%, 40% {
+        transform: scale(1);
+    }
+}
+
 .hero-decoration {
     position: absolute;
     top: 0;
@@ -195,6 +265,7 @@
     align-items: center;
     justify-content: center;
     transition: all var(--anim-fast) ease;
+    gap: 6px;
 }
 
 .control-btn:hover {
@@ -202,6 +273,30 @@
     border-color: var(--primary-neon);
     color: var(--primary-neon);
     box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+}
+
+/* HR实时显示按钮 */
+.control-btn.hr-display {
+    width: auto;
+    padding: 0 12px;
+    min-width: 80px;
+}
+
+.control-btn.hr-display #hr-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ff006e;
+    text-shadow: 0 0 5px rgba(255, 0, 110, 0.5);
+}
+
+.control-btn.hr-display.active {
+    border-color: #ff006e;
+    background: rgba(255, 0, 110, 0.1);
+}
+
+.control-btn.hr-display.active:hover {
+    border-color: #ff006e;
+    box-shadow: 0 0 15px rgba(255, 0, 110, 0.4);
 }
 
 /* 音乐按钮特殊样式 */

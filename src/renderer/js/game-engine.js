@@ -15,6 +15,7 @@ class GameEngine {
     this.skipMode = false;
     this.keyboardHandler = null;
     this.projectManager = window.projectManager; // 引用全局项目管理器
+    this.hasCompletedFirstTypewriter = false; // 标记是否完成第一次打字机效果
     this.init();
   }
 
@@ -38,6 +39,114 @@ class GameEngine {
     if (settingsBtn) {
       settingsBtn.addEventListener('click', () => {
         window.electronAPI.openSettings();
+      });
+    }
+
+    // IoT面板按钮
+    // IoT面板按钮（游戏界面专用）
+    const iotPanelBtn = document.getElementById('game-iot-panel-btn');
+    console.log('🔍 查找 game-iot-panel-btn:', iotPanelBtn ? '找到' : '未找到');
+    if (iotPanelBtn) {
+      console.log('✅ 为 game-iot-panel-btn 添加点击事件监听器');
+      
+      // 测试：添加一个简单的点击测试
+      iotPanelBtn.onclick = (e) => {
+        console.log('🖱️ onclick 触发！', e);
+      };
+      
+      iotPanelBtn.addEventListener('click', async (e) => {
+        console.log('🖱️ addEventListener click 触发！', e);
+        e.stopPropagation(); // 防止事件冒泡
+        
+        if (window.electronAPI && window.electronAPI.window && window.electronAPI.window.openIoTPanel) {
+          console.log('📞 调用 openIoTPanel API');
+          try {
+            await window.electronAPI.window.openIoTPanel();
+            console.log('✅ IoT面板打开成功');
+          } catch (error) {
+            console.error('❌ 打开IoT面板失败:', error);
+          }
+        } else {
+          console.error('❌ IoT面板API未找到', {
+            electronAPI: !!window.electronAPI,
+            window: !!(window.electronAPI && window.electronAPI.window),
+            openIoTPanel: !!(window.electronAPI && window.electronAPI.window && window.electronAPI.window.openIoTPanel)
+          });
+        }
+      }, true); // 使用捕获阶段
+    } else {
+      console.error('❌ 未找到 game-iot-panel-btn 元素');
+    }
+
+    // HR实时显示按钮（游戏界面专用） - 监听 IoT 管理器的心率事件
+    const hrBtn = document.getElementById('game-heart-rate-btn');
+    console.log('🔍 查找 game-heart-rate-btn:', hrBtn ? '找到' : '未找到', hrBtn);
+    console.log('🔍 查找 window.iotManager:', window.iotManager ? '存在' : '不存在');
+    
+    if (hrBtn && window.iotManager) {
+      console.log('🎮 游戏引擎: 开始设置心率监听器');
+      // 等待 IoT 管理器初始化完成
+      window.iotManager.waitUntilReady().then(() => {
+        console.log('✅ IoT管理器已准备就绪，注册心率事件监听器');
+        
+        // 监听心率数据更新
+        window.iotManager.on('heartrate', (data) => {
+          console.log('🎮 游戏引擎收到心率数据:', data);
+          if (data.bpm > 0) {
+            const hrValue = document.getElementById('game-hr-value');
+            if (hrValue) {
+              hrValue.textContent = data.bpm;
+              hrBtn.classList.add('active');
+              console.log(`✅ 更新游戏界面心率显示: ${data.bpm}`);
+            }
+          } else {
+            const hrValue = document.getElementById('game-hr-value');
+            if (hrValue) {
+              hrValue.textContent = '--';
+              hrBtn.classList.remove('active');
+            }
+          }
+        });
+
+        // 监听断开连接
+        window.iotManager.on('disconnect', () => {
+          console.log('🎮 IoT设备已断开，重置心率显示');
+          const hrValue = document.getElementById('game-hr-value');
+          if (hrValue) {
+            hrValue.textContent = '--';
+          }
+          hrBtn.classList.remove('active');
+        });
+
+        // 初始化显示当前状态
+        const status = window.iotManager.getStatus();
+        console.log('🎮 当前IoT状态:', status);
+        if (status.connected && status.heartRate > 0) {
+          const hrValue = document.getElementById('game-hr-value');
+          if (hrValue) {
+            hrValue.textContent = status.heartRate;
+            hrBtn.classList.add('active');
+            console.log(`✅ 初始化显示当前心率: ${status.heartRate}`);
+          }
+        }
+      }).catch(err => {
+        console.error('❌ IoT管理器初始化失败:', err);
+      });
+    } else {
+      console.warn('⚠️ 心率按钮或IoT管理器未找到', { hrBtn: !!hrBtn, iotManager: !!window.iotManager });
+    }
+
+    // 体感控制监听
+    if (window.iotManager) {
+      window.iotManager.waitUntilReady().then(() => {
+        console.log('🎮 注册体感控制监听器');
+        
+        window.iotManager.on('gesture', (data) => {
+          console.log('🎮 游戏引擎收到体感事件:', data);
+          this.handleGestureControl(data);
+        });
+      }).catch(err => {
+        console.error('❌ 注册体感监听器失败:', err);
       });
     }
 
@@ -183,6 +292,19 @@ class GameEngine {
    */
   async startGame(projectId) {
     try {
+      // 验证参数
+      if (!projectId) {
+        throw new Error('项目ID不能为空');
+      }
+
+      // 禁用返回主页按钮，防止打字机效果进行中返回导致问题
+      const backBtn = document.getElementById('back-to-main-btn');
+      if (backBtn) {
+        backBtn.disabled = true;
+        backBtn.style.opacity = '0.5';
+        backBtn.style.cursor = 'not-allowed';
+      }
+
       // 切换到游戏界面
       this.switchToGameScreen();
 
@@ -210,7 +332,7 @@ class GameEngine {
 
     } catch (error) {
       console.error('启动游戏失败:', error);
-      Utils.showNotification('启动游戏失败', 'error');
+      Utils.showNotification(`启动游戏失败: ${error.message}`, 'error');
       this.exitGame();
     }
   }
@@ -318,12 +440,22 @@ class GameEngine {
 
   const speed = this.skipMode ? 0 : 50; // 毫秒，跳过时为0
     let i = 0;
+    
+    // 标记这是第一次打字机效果
+    const isFirstTypewriter = !this.hasCompletedFirstTypewriter;
 
     return new Promise((resolve) => {
       const timer = setInterval(() => {
         // 检查是否被中断（用户按空格键跳过）
         if (element.dataset.typing === 'false') {
           clearInterval(timer);
+          
+          // 第一次打字机完成，启用返回按钮
+          if (isFirstTypewriter) {
+            this.hasCompletedFirstTypewriter = true;
+            this.enableBackButton();
+          }
+          
           resolve();
           return;
         }
@@ -334,6 +466,13 @@ class GameEngine {
         } else {
           clearInterval(timer);
           element.dataset.typing = 'false';
+          
+          // 第一次打字机完成，启用返回按钮
+          if (isFirstTypewriter) {
+            this.hasCompletedFirstTypewriter = true;
+            this.enableBackButton();
+          }
+          
           // 自动模式：文本结束后根据状态继续
           if (this.autoMode && !this.isWaitingForChoice) {
             setTimeout(() => { if (this.autoMode && !this.isGenerating) this.continueStory(); }, 700);
@@ -342,6 +481,19 @@ class GameEngine {
         }
       }, speed);
     });
+  }
+
+  /**
+   * 启用返回主页按钮
+   */
+  enableBackButton() {
+    const backBtn = document.getElementById('back-to-main-btn');
+    if (backBtn) {
+      backBtn.disabled = false;
+      backBtn.style.opacity = '1';
+      backBtn.style.cursor = 'pointer';
+      console.log('✅ 返回主页按钮已启用');
+    }
   }
 
   /**
@@ -464,6 +616,79 @@ class GameEngine {
     container.classList.add('hidden');
     spaceHint.classList.remove('hidden');
     choiceHint.classList.add('hidden');
+  }
+
+  /**
+   * 处理体感控制
+   * @param {Object} gestureData - 体感数据 { type: 'single'|'double', magnitude, timestamp }
+   */
+  handleGestureControl(gestureData) {
+    console.log('🎮 处理体感控制:', gestureData);
+
+    // 检查体感控制是否启用
+    if (window.iotManager) {
+      const status = window.iotManager.getStatus();
+      if (!status.gestureEnabled) {
+        console.log('⚠️ 体感控制未启用，忽略体感事件');
+        return;
+      }
+    }
+
+    // 只在游戏进行中且等待选择时响应
+    if (this.gameState !== 'playing' || !this.isWaitingForChoice) {
+      console.log('⚠️ 当前状态不支持体感控制', {
+        gameState: this.gameState,
+        isWaitingForChoice: this.isWaitingForChoice
+      });
+      return;
+    }
+
+    if (gestureData.type === 'single') {
+      // 单次摇动 - 切换到下一个选项(循环)
+      this.switchToNextChoice();
+    } else if (gestureData.type === 'double') {
+      // 连续两次摇动 - 确认当前选项
+      this.confirmCurrentChoice();
+    }
+  }
+
+  /**
+   * 切换到下一个选项(循环)
+   */
+  switchToNextChoice() {
+    if (!this.isWaitingForChoice || this.currentChoices.length === 0) {
+      return;
+    }
+
+    // 计算下一个索引(循环)
+    const nextIndex = (this.selectedChoiceIndex + 1) % this.currentChoices.length;
+    
+    console.log(`🎮 体感切换选项: ${this.selectedChoiceIndex} → ${nextIndex}`);
+    
+    // 更新高亮
+    this.highlightChoice(nextIndex);
+    this.selectedChoiceIndex = nextIndex;
+
+    // 视觉反馈
+    Utils.showNotification(`切换至选项 ${nextIndex + 1}`, 'info');
+  }
+
+  /**
+   * 确认当前选项
+   */
+  async confirmCurrentChoice() {
+    if (!this.isWaitingForChoice || this.selectedChoiceIndex < 0) {
+      console.log('⚠️ 没有可确认的选项');
+      return;
+    }
+
+    console.log(`🎮 体感确认选项: ${this.selectedChoiceIndex}`);
+    
+    // 视觉反馈
+    Utils.showNotification(`确认选项 ${this.selectedChoiceIndex + 1}`, 'success');
+    
+    // 执行选择
+    await this.selectChoice(this.selectedChoiceIndex);
   }
 
   /**

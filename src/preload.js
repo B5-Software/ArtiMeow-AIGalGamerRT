@@ -53,7 +53,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setFullscreen: (fullscreen) => ipcRenderer.invoke('window-set-fullscreen', fullscreen),
     setSize: (width, height) => ipcRenderer.invoke('window-set-size', width, height),
     getSize: () => ipcRenderer.invoke('window-get-size'),
-    isFullscreen: () => ipcRenderer.invoke('window-is-fullscreen')
+    isFullscreen: () => ipcRenderer.invoke('window-is-fullscreen'),
+    openSRITest: () => ipcRenderer.invoke('window-open-sri-test'),
+    openIoTPanel: () => ipcRenderer.invoke('window-open-iot-panel')
+  },
+
+  // IoT设备管理
+  iot: {
+    connectSerial: (port, baudRate) => ipcRenderer.invoke('iot-serial-connect', port, baudRate),
+    disconnectSerial: () => ipcRenderer.invoke('iot-serial-disconnect'),
+    listSerialPorts: () => ipcRenderer.invoke('iot-list-serial-ports'),
+    getConnectionState: () => ipcRenderer.invoke('iot-get-connection-state'),
+    onSerialData: (callback) => {
+      ipcRenderer.on('iot-serial-data', (event, data) => callback(data));
+    },
+    onSerialError: (callback) => {
+      ipcRenderer.on('iot-serial-error', (event, error) => callback(error));
+    },
+    onConnectionStateChanged: (callback) => {
+      ipcRenderer.on('iot-connection-state-changed', (event, state) => callback(state));
+    },
+    onSRIScoreUpdated: (callback) => {
+      ipcRenderer.on('sri-score-updated', (event, data) => callback(data));
+    }
+  },
+
+  // IPC通用调用（用于SRI测试完成等事件）
+  ipc: {
+    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+    send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+    on: (channel, callback) => {
+      ipcRenderer.on(channel, (event, ...args) => callback(...args));
+    }
   },
 
   // 主题实时预览

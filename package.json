@@ -1,6 +1,6 @@
 {
   "name": "artimeow-ai-galgamer-rt",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "ArtiMeow AI GalGamer RT - 一个实时AIGC的GalGame框架",
   "main": "src/main.js",
   "author": "B5-Software",
@@ -45,6 +45,7 @@
     "fs-extra": "^11.3.1",
     "music-metadata": "^11.8.3",
     "path": "^0.12.7",
+    "serialport": "^13.0.0",
     "uuid": "^12.0.0",
     "yauzl": "^3.2.0",
     "yazl": "^3.3.1"

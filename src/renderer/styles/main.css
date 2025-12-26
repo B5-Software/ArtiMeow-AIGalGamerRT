@@ -2348,3 +2348,169 @@ body.theme-light .form-group textarea::placeholder { color: #6b7280; }
     min-width: 70px;
   }
 }
+
+/* 心率曲线悬浮面板 */
+.hr-chart-panel {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  width: 320px;
+  background: var(--background-medium);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: var(--spacing-md);
+  backdrop-filter: blur(10px);
+  z-index: 9999;
+  animation: slideInRight 0.3s ease;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.hr-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.hr-chart-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.hr-chart-header h4 i {
+  color: var(--accent-color);
+}
+
+.btn-close-small {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: var(--transition-fast);
+}
+
+.btn-close-small:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+#main-hr-chart,
+#game-hr-chart {
+  width: 100%;
+  height: 150px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.hr-chart-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--spacing-sm);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.hr-display {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.hr-display .hr-unit {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: -4px;
+}
+
+.hr-display.active {
+  background: linear-gradient(135deg, rgba(240, 147, 251, 0.2), rgba(102, 126, 234, 0.2));
+  animation: heartbeat-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes heartbeat-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(240, 147, 251, 0.3);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(240, 147, 251, 0.6);
+  }
+}
+
+/* IoT控制组内联样式 */
+#main-iot-controls,
+#game-iot-controls {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+/* 主页面header中的心率显示样式 */
+.hr-display-header {
+  position: relative;
+  /* 默认隐藏,通过JS控制显示 */
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0.6rem 1rem !important;
+}
+
+.hr-display-header.visible {
+  display: inline-flex !important;
+}
+
+.hr-display-header .hr-unit {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: -4px;
+}
+
+.hr-display-header.active {
+  background: linear-gradient(135deg, rgba(240, 147, 251, 0.2), rgba(102, 126, 234, 0.2)) !important;
+  animation: heartbeat-pulse 1.5s ease-in-out infinite;
+}
+
+/* 游戏界面心率显示 - 圆角矩形样式 */
+#game-heart-rate-btn {
+  border-radius: 50px !important; /* 完全圆角 */
+  padding: 8px 16px !important; /* 增加左右padding使其成为胶囊形 */
+  min-width: auto !important;
+  /* 默认隐藏,通过JS控制显示 */
+  align-items: center;
+  gap: 6px;
+}
+
+#game-heart-rate-btn.visible {
+  display: inline-flex !important;
+}
+
+#game-heart-rate-btn.active {
+  background: linear-gradient(135deg, rgba(240, 147, 251, 0.3), rgba(102, 126, 234, 0.3)) !important;
+  animation: heartbeat-pulse 1.5s ease-in-out infinite;
+}

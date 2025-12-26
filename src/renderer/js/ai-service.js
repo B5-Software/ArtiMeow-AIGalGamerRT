@@ -346,6 +346,175 @@ class AIService {
     // 读取角色库
     const charactersData = await window.projectManager.readCharacters(project);
     
+    // 获取IoT生理数据和分析
+    let iotDataSection = '';
+    if (window.iotManager) {
+      const iotStatus = window.iotManager.getStatus();
+      console.log('🎮 获取IoT状态用于AI提示词:', iotStatus);
+      
+      if (iotStatus.enabled && (iotStatus.heartRate > 0 || iotStatus.sriScore > 0)) {
+        iotDataSection = '\n【用户生理与情绪监测】\n';
+        
+        // 原始数据
+        iotDataSection += '原始数据：\n';
+        if (iotStatus.heartRate > 0) {
+          iotDataSection += `- 实时心率: ${iotStatus.heartRate} BPM`;
+          iotDataSection += iotStatus.connected ? ' (实时监测中)\n' : ' (最后记录)\n';
+        }
+        if (iotStatus.sriScore > 0) {
+          iotDataSection += `- SRI性压抑指数: ${iotStatus.sriScore}/100\n`;
+        }
+        
+        // 游戏模式和安全设置
+        iotDataSection += '\n游戏设置：\n';
+        iotDataSection += `- 游戏模式强度: ${iotStatus.gameMode || '标准模式'}\n`;
+        iotDataSection += `- 心率安全目标: ${iotStatus.heartRateTarget || 120} BPM (超过此值应降低刺激)\n`;
+        
+        // 情绪分析（使用EmotionAnalyzer）
+        if (window.emotionAnalyzer && iotStatus.heartRate > 0) {
+          const currentEmotion = window.emotionAnalyzer.getCurrentEmotion();
+          const emotionSummary = window.emotionAnalyzer.getEmotionSummary();
+          const contentSuggestion = window.emotionAnalyzer.getContentSuggestion();
+          
+          // 添加三个核心指标
+          if (currentEmotion) {
+            iotDataSection += '\n【核心情绪指标】\n';
+            iotDataSection += `- 情绪强度 (Intensity): ${currentEmotion.intensity.toFixed(0)}/100 - ${
+              currentEmotion.intensity < 30 ? '低强度,用户状态平稳' :
+              currentEmotion.intensity < 60 ? '中等强度,用户有一定情绪波动' :
+              '高强度,用户情绪激烈'
+            }\n`;
+            iotDataSection += `- 唤醒程度 (Arousal): ${currentEmotion.arousal.toFixed(0)}/100 - ${
+              currentEmotion.arousal < 40 ? '低唤醒,用户放松平静' :
+              currentEmotion.arousal < 70 ? '中等唤醒,用户注意力集中' :
+              '高唤醒,用户高度兴奋或紧张'
+            }\n`;
+            iotDataSection += `- 情绪效价 (Valence): ${currentEmotion.valence.toFixed(0)}/100 - ${
+              currentEmotion.valence < -30 ? '负面情绪,用户可能感到不适或紧张' :
+              currentEmotion.valence > 30 ? '正面情绪,用户享受当前内容' :
+              '中性情绪'
+            }\n`;
+          }
+          
+          if (emotionSummary) {
+            iotDataSection += '\n详细情绪分析：\n';
+            iotDataSection += emotionSummary.split('\n').map(line => `- ${line}`).join('\n') + '\n';
+          }
+          
+          if (contentSuggestion) {
+            iotDataSection += `\n💡 内容适配建议: ${contentSuggestion}\n`;
+          }
+        } else {
+          // 回退到简单心率分析
+          if (iotStatus.heartRate > 0) {
+            iotDataSection += '\n生理状态分析：\n';
+            const hr = iotStatus.heartRate;
+            let hrAnalysis = '';
+            if (hr < 60) {
+              hrAnalysis = '心率偏低，用户可能处于放松或平静状态';
+            } else if (hr >= 60 && hr <= 80) {
+              hrAnalysis = '心率正常，用户处于平稳状态';
+            } else if (hr > 80 && hr <= 100) {
+              hrAnalysis = '心率略高，用户可能有轻微兴奋或紧张';
+            } else if (hr > 100 && hr <= 120) {
+              hrAnalysis = '心率明显升高，用户处于兴奋或激动状态';
+            } else {
+              hrAnalysis = '心率很高，用户情绪激动或身体活跃';
+            }
+            iotDataSection += `- 心率状态: ${hrAnalysis}\n`;
+          }
+        }
+        
+        // IoT Manager的情绪分析数据(情绪状态、兴奋度、紧张度、参与度)
+        if (window.iotManager && iotStatus.heartRate > 0) {
+          const emotionalState = window.iotManager.analyzeEmotionalState();
+          if (emotionalState) {
+            iotDataSection += '\n【IoT实时情绪监测】\n';
+            iotDataSection += `- 情绪状态: ${window.iotManager.translateEmotionalState(emotionalState.state)}\n`;
+            iotDataSection += `- 兴奋度: ${emotionalState.excitement}/100 - ${
+              emotionalState.excitement < 30 ? '低兴奋,用户状态平淡' :
+              emotionalState.excitement < 60 ? '中等兴奋,用户有一定热情' :
+              '高兴奋,用户情绪高涨'
+            }\n`;
+            iotDataSection += `- 紧张度: ${emotionalState.tension}/100 - ${
+              emotionalState.tension < 30 ? '低紧张,用户放松' :
+              emotionalState.tension < 60 ? '中等紧张,用户略有压力' :
+              '高紧张,用户压力较大'
+            }\n`;
+            iotDataSection += `- 参与度: ${emotionalState.engagement}/100 - ${
+              emotionalState.engagement < 30 ? '低参与,用户可能感到无聊' :
+              emotionalState.engagement < 60 ? '中等参与,用户保持关注' :
+              '高参与,用户高度投入'
+            }\n`;
+            
+            // 心率趋势
+            const trend = window.iotManager.getHeartRateTrend();
+            if (trend) {
+              iotDataSection += `- 心率趋势: ${window.iotManager.translateTrend(trend.trend)}\n`;
+              iotDataSection += `- 平均心率: ${trend.avgRate || '--'} BPM\n`;
+              iotDataSection += `- 心率范围: ${trend.minRate || '--'} - ${trend.maxRate || '--'} BPM\n`;
+            }
+          }
+        }
+        
+        // SRI分析
+        if (iotStatus.sriScore > 0) {
+          const sri = iotStatus.sriScore;
+          let sriAnalysis = '';
+          let contentSuggestion = '';
+          
+          if (sri < 30) {
+            sriAnalysis = '性压抑程度很低，用户对性话题持开放态度';
+            contentSuggestion = '可以适度使用浪漫、暧昧的情节，用户接受度高';
+          } else if (sri >= 30 && sri < 50) {
+            sriAnalysis = '性压抑程度较低，用户对性话题比较开放';
+            contentSuggestion = '可以使用含蓄的浪漫元素，避免过于直接';
+          } else if (sri >= 50 && sri < 70) {
+            sriAnalysis = '性压抑程度中等，用户对性话题有一定保留';
+            contentSuggestion = '建议使用委婉、含蓄的表达，注重情感铺垫';
+          } else if (sri >= 70 && sri < 85) {
+            sriAnalysis = '性压抑程度较高，用户对性话题比较敏感';
+            contentSuggestion = '应避免直接的性相关内容，重点放在情感和剧情发展上';
+          } else {
+            sriAnalysis = '性压抑程度很高，用户对性话题非常保守';
+            contentSuggestion = '完全避免性相关暗示，专注于纯粹的情感和友谊叙事';
+          }
+          
+          iotDataSection += `\nSRI评估：\n`;
+          iotDataSection += `- ${sriAnalysis}\n`;
+          iotDataSection += `- 内容建议: ${contentSuggestion}\n`;
+        }
+        
+        // 综合状态评估
+        if (iotStatus.heartRate > 0 && iotStatus.sriScore > 0) {
+          const hr = iotStatus.heartRate;
+          const sri = iotStatus.sriScore;
+          let combinedAnalysis = '';
+          
+          if (hr > 100 && sri < 50) {
+            combinedAnalysis = '用户情绪高涨且开放，适合推进浪漫剧情';
+          } else if (hr > 100 && sri >= 50) {
+            combinedAnalysis = '用户情绪激动但对亲密话题保守，建议聚焦紧张刺激的非性向剧情';
+          } else if (hr <= 80 && sri < 50) {
+            combinedAnalysis = '用户状态平稳且开放，可以自然地发展各类情节';
+          } else if (hr <= 80 && sri >= 70) {
+            combinedAnalysis = '用户平静且保守，适合温和、纯情的故事线';
+          } else {
+            combinedAnalysis = '用户处于中等状态，保持现有内容风格即可';
+          }
+          
+          iotDataSection += `\n综合评估: ${combinedAnalysis}\n`;
+        }
+        
+        // 安全提醒
+        if (iotStatus.heartRate > iotStatus.heartRateTarget) {
+          iotDataSection += `\n⚠️ 安全警告: 用户心率 (${iotStatus.heartRate} BPM) 已超过安全目标 (${iotStatus.heartRateTarget} BPM)，请立即降低内容刺激程度，提供平和、舒缓的情节。\n`;
+        }
+        
+        iotDataSection += '\n请根据以上生理数据、情绪分析和游戏设置，精准调整故事内容的刺激程度、浪漫尺度和情节节奏。\n';
+      }
+    }
+    
     // 获取前三次对话历史
     let conversationHistory = '';
     try {
@@ -397,6 +566,13 @@ ${context.currentContent || '故事开始'}
 
 ${userChoice ? `用户选择：${userChoice}` : ''}
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ 重要提醒：以下是【用户实时生理监测数据】，与游戏设定无关！
+这些数据仅用于调整内容刺激程度和节奏，请勿将其混入故事情节！
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${iotDataSection}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 请严格仅以JSON格式返回以下内容（不要包含任何解释或多余文本）：
 {
   "dialogue": "对话内容（必填）",
@@ -435,7 +611,8 @@ ${userChoice ? `用户选择：${userChoice}` : ''}
 4. 知识库更新要相关且有用
 5. 章节大意要简洁准确
 6. 确保JSON格式正确，所有必填字段都存在；不得返回不完整JSON；
-7. charactersDelta仅在有角色相关改动时返回，避免无意义空数组`;
+7. charactersDelta仅在有角色相关改动时返回，避免无意义空数组
+${iotDataSection ? '8. ⚠️ 生理监测数据仅用于控制内容刺激度（根据用户生理数据调整内容的刺激程度、浪漫尺度和情节节奏），不要在故事中提及用户的心率或SRI数据' : ''}`;
 
   return prompt;
   }
